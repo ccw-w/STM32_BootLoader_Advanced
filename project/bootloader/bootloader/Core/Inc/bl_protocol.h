@@ -15,4 +15,6 @@ typedef struct
     uint32_t version;    /* 固件版本号 */
 } BL_FirmwareHeader_t;
 
+uint8_t BL_CheckFirmwareHeader(const BL_FirmwareHeader_t *header);
+
 #endif
