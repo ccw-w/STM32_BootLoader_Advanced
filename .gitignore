@@ -1,0 +1,33 @@
+# Keil
+*.axf
+*.map
+*.lst
+*.o
+*.crf
+*.d
+*.dep
+*.lnp
+*.sct
+*.bak
+*.uvgui.*
+*.uvoptx
+*.tmp
+*.build_log.htm
+
+# STM32CubeMX generated backup / temp
+*.ioc.bak
+
+# Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# Output binaries
+output/bootloader_bin/*
+output/app_bin/*
+
+# OS
+.DS_Store
+Thumbs.db
