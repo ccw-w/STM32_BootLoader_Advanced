@@ -21,6 +21,9 @@
 __pycache__/
 *.pyc
 
+#Doc
+*.pdf
+
 # VSCode
 .vscode/
 
