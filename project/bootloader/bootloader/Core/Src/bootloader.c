@@ -16,6 +16,9 @@ static uint8_t g_header_received = 0; // 已经接收的固件头字节数
 static uint8_t g_fw_data_buf[256];    // 固件数据接收缓冲区，测试先接收256字节
 static uint32_t g_fw_data_len = 0;    // 实际收到了多少字节
 static uint32_t g_calc_crc32 = 0;     // 已经接收数据的 CRC32
+static uint32_t g_fw_write_addr = 0;  // 当前写到 Flash 的地址
+static uint32_t g_fw_total_size = 0;  // 这次固件大小
+static uint32_t g_fw_remaining_size = 0; // 还剩下多少字节没有接收
 
 static uint8_t BL_ReceiveHeader(BL_FirmwareHeader_t *header);
 static void BL_PrintHeader(const BL_FirmwareHeader_t *header);
@@ -37,11 +40,9 @@ void Bootloader_Run(void) {
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
   } else if (BL_IsAppValid(APP_FLASH_START_ADDR)) {
     printf("App valid, jump now...\r\n");
-
     // 等待 UART 发送完成，避免跳转后数据丢失
     while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
     }
-
     BL_JumpToApp(APP_FLASH_START_ADDR);
   } else {
     printf("No valid app found, stay in bootloader.\r\n");
@@ -52,7 +53,6 @@ void Bootloader_Run(void) {
     switch (g_bl_ctx.state) {
     case BL_STATE_WAIT_HEADER:
       printf("Waiting firmware header...\r\n");
-
       if (BL_ReceiveHeader(
               &g_fw_header)) { // 串口超时就打印Timeout，成功接收就打印Header内容并检查合法性
         BL_PrintHeader(&g_fw_header); // 调试用，打印接收到的固件头信息
@@ -65,7 +65,18 @@ void Bootloader_Run(void) {
           g_bl_ctx.version = g_fw_header.version;
           g_bl_ctx.recv_size = 0;
 
-          g_bl_ctx.state = BL_STATE_RECV_DATA;
+          g_fw_total_size = g_fw_header.size;
+          g_fw_remaining_size = g_fw_header.size;
+          g_fw_write_addr = APP_FLASH_START_ADDR;
+          g_calc_crc32 = 0;
+
+          if (BL_Flash_Erase_AppArea() != HAL_OK) {
+            printf("Flash erase failed.\r\n");
+            g_bl_ctx.state = BL_STATE_ERROR;
+          } else {
+            printf("Flash erase OK.\r\n");
+            g_bl_ctx.state = BL_STATE_RECV_DATA;
+          }
         } else {
           printf("Header invalid.\r\n");
           g_bl_ctx.state = BL_STATE_ERROR;
@@ -76,60 +87,56 @@ void Bootloader_Run(void) {
       }
       break;
 
-    case BL_STATE_RECV_DATA:
-      /* 这里接收固件数据 */
+    case BL_STATE_RECV_DATA: {
       uint32_t recv_len;
 
-      recv_len = g_bl_ctx.expected_size;
-      if (recv_len >
-          sizeof(
-              g_fw_data_buf)) { // 现在如果头里写的是 4096 字节，因为缓冲区只有
-                                // 256 字节，所以这一步只先收前 256 字节
+      if (g_fw_remaining_size == 0U) {
+        g_bl_ctx.state = BL_STATE_VERIFY_CRC;
+        break;
+      }
+
+      recv_len = g_fw_remaining_size;
+      if (recv_len > sizeof(g_fw_data_buf)) {
         recv_len = sizeof(g_fw_data_buf);
       }
-      printf("Recv data stage. need=%lu bytes\r\n", recv_len);
+
+      printf("Recv chunk. need=%lu, remaining=%lu\r\n", recv_len,
+             g_fw_remaining_size);
 
       if (BL_ReceiveData(g_fw_data_buf, recv_len)) {
         g_fw_data_len = recv_len;
-        g_bl_ctx.recv_size = recv_len;
-        g_calc_crc32 = BL_CRC32_Calculate(g_fw_data_buf, g_fw_data_len);
 
-        printf("Recv data OK. recv_size=%lu, calc_crc=0x%08lX\r\n",
-               g_bl_ctx.recv_size, g_calc_crc32);
+        if (BL_Flash_Write(g_fw_write_addr, g_fw_data_buf, g_fw_data_len) ==
+            HAL_OK) {
+          g_fw_write_addr += g_fw_data_len;
+          g_fw_remaining_size -= g_fw_data_len;
+          g_bl_ctx.recv_size += g_fw_data_len;
 
-        if (BL_Flash_Erase_AppArea() != HAL_OK) {
-          printf("Flash erase failed.\r\n");
-          g_bl_ctx.state = BL_STATE_ERROR;
+          printf("Chunk write OK. recv_size=%lu, remaining=%lu\r\n",
+                 g_bl_ctx.recv_size, g_fw_remaining_size);
         } else {
-          printf("Flash erase OK.\r\n");
-          g_bl_ctx.state = BL_STATE_VERIFY_CRC;
+          printf("Chunk write failed.\r\n");
+          g_bl_ctx.state = BL_STATE_ERROR;
         }
       } else {
         printf("Recv data timeout.\r\n");
         g_bl_ctx.state = BL_STATE_ERROR;
       }
       break;
+    }
 
     case BL_STATE_VERIFY_CRC:
-      /* 这里做 CRC 校验 */
+      g_calc_crc32 = BL_CRC32_Calculate((const uint8_t *)APP_FLASH_START_ADDR,
+                                        g_fw_total_size);
       printf("Verify CRC stage. calc=0x%08lX, expected=0x%08lX\r\n",
              g_calc_crc32, g_bl_ctx.expected_crc32);
 
-      if (g_calc_crc32 != g_bl_ctx.expected_crc32) {
+      if (g_calc_crc32 == g_bl_ctx.expected_crc32) {
+        printf("CRC OK.\r\n");
+        g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
+      } else {
         printf("CRC mismatch.\r\n");
         g_bl_ctx.state = BL_STATE_ERROR;
-      } else {
-        printf("CRC OK.\r\n");
-
-        if (BL_Flash_Write(APP_FLASH_START_ADDR, g_fw_data_buf,
-                           g_fw_data_len) == HAL_OK) {
-          printf("Flash write OK. addr=0x%08lX, len=%lu\r\n",
-                 APP_FLASH_START_ADDR, g_fw_data_len);
-          g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
-        } else {
-          printf("Flash write failed.\r\n");
-          g_bl_ctx.state = BL_STATE_ERROR;
-        }
       }
       break;
 
