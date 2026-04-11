@@ -2,6 +2,7 @@
 #include "bl_crc.h"
 #include "bl_flash.h"
 #include "bl_jump.h"
+#include "bl_meta.h"
 #include "bl_mode.h"
 #include "bl_protocol.h"
 #include "bl_state.h"
@@ -19,6 +20,8 @@ static uint32_t g_calc_crc32 = 0;     // 已经接收数据的 CRC32
 static uint32_t g_fw_write_addr = 0;  // 当前写到 Flash 的地址
 static uint32_t g_fw_total_size = 0;  // 这次固件大小
 static uint32_t g_fw_remaining_size = 0; // 还剩下多少字节没有接收
+static BL_MetaInfo_t g_meta_info;
+static uint8_t g_idle_printed = 0;
 
 static uint8_t BL_ReceiveHeader(BL_FirmwareHeader_t *header);
 static void BL_PrintHeader(const BL_FirmwareHeader_t *header);
@@ -26,26 +29,45 @@ static uint8_t BL_ReceiveData(uint8_t *buf, uint32_t len);
 
 void Bootloader_Run(void) {
   memset(&g_fw_header, 0, sizeof(g_fw_header)); // 固件头清零
+  memset(&g_meta_info, 0, sizeof(g_meta_info));
+  uint8_t meta_valid = 0;
   BL_State_Init(&g_bl_ctx); // 初始化状态机为空闲状态，已经初始化则return
 
   printf("==== Bootloader Start ====\r\n");
   printf("BL start: 0x%08lX\r\n", BL_FLASH_START_ADDR);
   printf("APP addr: 0x%08lX\r\n", APP_FLASH_START_ADDR);
+  meta_valid = BL_Meta_Read(&g_meta_info);
+
+  if (meta_valid) {
+    printf("Meta: status=%lu, size=%lu, crc=0x%08lX, ver=%lu\r\n",
+           g_meta_info.status, g_meta_info.size, g_meta_info.crc32,
+           g_meta_info.version);
+  } else {
+    printf("Meta: empty\r\n");
+  }
 
   HAL_Delay(BL_JUMP_DELAY_MS);
 
-  /* 当前阶段：实现简单 标志位(1进入，0不进入) 升级模式入口判断 */
-  if (BL_ShouldEnterUpdateMode()) {
+  // 在主流程判断里，先插入“异常升级状态优先留在 Bootloader”
+  if (meta_valid && ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
+                     (g_meta_info.status == BL_META_STATUS_ERROR))) {
+    printf("Meta says update not finished, stay in bootloader.\r\n");
+    g_idle_printed = 0U;
+    g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+  } else if (BL_ShouldEnterUpdateMode()) {
     printf("Enter update mode.\r\n");
+    g_idle_printed = 0U;
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
   } else if (BL_IsAppValid(APP_FLASH_START_ADDR)) {
     printf("App valid, jump now...\r\n");
-    // 等待 UART 发送完成，避免跳转后数据丢失
+
     while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
     }
+
     BL_JumpToApp(APP_FLASH_START_ADDR);
   } else {
     printf("No valid app found, stay in bootloader.\r\n");
+    g_idle_printed = 0U;
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
   }
 
@@ -75,6 +97,9 @@ void Bootloader_Run(void) {
             g_bl_ctx.state = BL_STATE_ERROR;
           } else {
             printf("Flash erase OK.\r\n");
+            BL_Meta_Set(BL_META_STATUS_UPDATING, g_fw_header.size,
+                        g_fw_header.crc32, g_fw_header.version);
+
             g_bl_ctx.state = BL_STATE_RECV_DATA;
           }
         } else {
@@ -133,24 +158,38 @@ void Bootloader_Run(void) {
 
       if (g_calc_crc32 == g_bl_ctx.expected_crc32) {
         printf("CRC OK.\r\n");
+        BL_Meta_Set(BL_META_STATUS_OK, g_fw_total_size, g_bl_ctx.expected_crc32,
+                    g_bl_ctx.version);
         g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
       } else {
         printf("CRC mismatch.\r\n");
+        BL_Meta_Set(BL_META_STATUS_ERROR, g_fw_total_size,
+                    g_bl_ctx.expected_crc32, g_bl_ctx.version);
+
         g_bl_ctx.state = BL_STATE_ERROR;
       }
       break;
 
     case BL_STATE_PROGRAM_DONE:
       printf("Program done.\r\n");
+      printf("Update success. You may reset and run app.\r\n");
       g_bl_ctx.state = BL_STATE_IDLE;
       break;
 
     case BL_STATE_ERROR:
       printf("Bootloader error.\r\n");
+      printf("Update failed. Stay in bootloader.\r\n");
       g_bl_ctx.state = BL_STATE_IDLE;
       break;
 
     case BL_STATE_IDLE:
+      if (g_idle_printed == 0U) {
+        printf("Bootloader idle, waiting for next action.\r\n");
+        g_idle_printed = 1U;
+      }
+      HAL_Delay(100);
+      break;
+
     default:
       HAL_Delay(100);
       break;

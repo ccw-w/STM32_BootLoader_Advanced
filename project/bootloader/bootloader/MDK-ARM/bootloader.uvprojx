@@ -691,6 +691,11 @@
               <FileType>1</FileType>
               <FilePath>..\Core\Src\bl_protocol.c</FilePath>
             </File>
+            <File>
+              <FileName>bl_meta.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Core\Src\bl_meta.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
