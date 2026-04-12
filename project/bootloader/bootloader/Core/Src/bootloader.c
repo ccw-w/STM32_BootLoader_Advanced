@@ -22,35 +22,116 @@ static uint32_t g_fw_total_size = 0;  // 这次固件大小
 static uint32_t g_fw_remaining_size = 0; // 还剩下多少字节没有接收
 static BL_MetaInfo_t g_meta_info;
 static uint8_t g_idle_printed = 0;
+static uint32_t BL_GetSlotAddress(BL_Slot_t slot);
+static uint32_t BL_GetActiveAppAddress(void);
 
 static uint8_t BL_ReceiveHeader(BL_FirmwareHeader_t *header);
 static void BL_PrintHeader(const BL_FirmwareHeader_t *header);
 static uint8_t BL_ReceiveData(uint8_t *buf, uint32_t len);
+static BL_Slot_t BL_GetInactiveSlot(BL_Slot_t active_slot);
+static uint32_t BL_GetTargetAppAddress(void);
+static uint32_t BL_GetSlotSize(BL_Slot_t slot);
+static uint32_t BL_GetTargetAppSize(void);
 
 void Bootloader_Run(void) {
   memset(&g_fw_header, 0, sizeof(g_fw_header)); // 固件头清零
   memset(&g_meta_info, 0, sizeof(g_meta_info));
   uint8_t meta_valid = 0;
   BL_State_Init(&g_bl_ctx); // 初始化状态机为空闲状态，已经初始化则return
-
   printf("==== Bootloader Start ====\r\n");
   printf("BL start: 0x%08lX\r\n", BL_FLASH_START_ADDR);
-  printf("APP addr: 0x%08lX\r\n", APP_FLASH_START_ADDR);
   meta_valid = BL_Meta_Read(&g_meta_info);
 
   if (meta_valid) {
-    printf("Meta: status=%lu, size=%lu, crc=0x%08lX, ver=%lu\r\n",
-           g_meta_info.status, g_meta_info.size, g_meta_info.crc32,
+    printf("Meta: status=%lu, active=%c, target=%c, rollback=%c, pending=%lu, "
+           "confirmed=%lu, size=%lu, crc=0x%08lX, ver=%lu\r\n",
+           g_meta_info.status, g_meta_info.active_slot, g_meta_info.target_slot,
+           g_meta_info.rollback_slot, g_meta_info.boot_pending,
+           g_meta_info.confirmed, g_meta_info.size, g_meta_info.crc32,
            g_meta_info.version);
   } else {
-    printf("Meta: empty\r\n");
+    printf("Meta: empty, default slot A\r\n");
+
+    g_meta_info.active_slot = BL_SLOT_A;
+    g_meta_info.target_slot = BL_SLOT_B;
+    g_meta_info.rollback_slot = BL_SLOT_A;
+    g_meta_info.boot_pending = 0U;
+    g_meta_info.confirmed = 1U;
   }
+  printf("Active app addr: 0x%08lX\r\n", BL_GetActiveAppAddress());
 
   HAL_Delay(BL_JUMP_DELAY_MS);
 
-  // 在主流程判断里，先插入“异常升级状态优先留在 Bootloader”
-  if (meta_valid && ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
-                     (g_meta_info.status == BL_META_STATUS_ERROR))) {
+  /* 启动决策 */
+  HAL_Delay(BL_JUMP_DELAY_MS);
+
+  /* 启动决策：保留 TESTING / rollback */
+  if (meta_valid && (g_meta_info.status == BL_META_STATUS_TESTING) &&
+      (g_meta_info.confirmed == 0U) && (g_meta_info.boot_pending == 1U)) {
+    uint32_t app_addr = BL_GetActiveAppAddress();
+    uint32_t app_size = BL_GetSlotSize((BL_Slot_t)g_meta_info.active_slot);
+
+    printf("Testing new app in slot %c...\r\n", g_meta_info.active_slot);
+
+    if (!BL_IsAppValid(app_addr, app_size)) {
+      printf("Test app invalid in slot %c.\r\n", g_meta_info.active_slot);
+
+      g_meta_info.active_slot = g_meta_info.rollback_slot;
+      g_meta_info.target_slot =
+          BL_GetInactiveSlot((BL_Slot_t)g_meta_info.active_slot);
+      g_meta_info.boot_pending = 0U;
+      g_meta_info.confirmed = 1U;
+
+      BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
+                  (BL_Slot_t)g_meta_info.target_slot,
+                  (BL_Slot_t)g_meta_info.rollback_slot,
+                  g_meta_info.boot_pending, g_meta_info.confirmed,
+                  g_meta_info.size, g_meta_info.crc32, g_meta_info.version);
+
+      g_idle_printed = 0U;
+      g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    } else {
+      /* 标记：已经试启动过一次 */
+      g_meta_info.boot_pending = 0U;
+
+      BL_Meta_Set(BL_META_STATUS_TESTING, (BL_Slot_t)g_meta_info.active_slot,
+                  (BL_Slot_t)g_meta_info.target_slot,
+                  (BL_Slot_t)g_meta_info.rollback_slot,
+                  g_meta_info.boot_pending, 0U, g_meta_info.size,
+                  g_meta_info.crc32, g_meta_info.version);
+
+      while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
+      }
+
+      BL_JumpToApp(app_addr, app_size);
+
+      printf("Test jump failed, back to bootloader.\r\n");
+      g_idle_printed = 0U;
+      g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    }
+  } else if (meta_valid && (g_meta_info.status == BL_META_STATUS_TESTING) &&
+             (g_meta_info.confirmed == 0U) &&
+             (g_meta_info.boot_pending == 0U)) {
+    printf("New app not confirmed, rollback to slot %c.\r\n",
+           g_meta_info.rollback_slot);
+
+    g_meta_info.active_slot = g_meta_info.rollback_slot;
+    g_meta_info.target_slot =
+        BL_GetInactiveSlot((BL_Slot_t)g_meta_info.active_slot);
+    g_meta_info.rollback_slot = g_meta_info.active_slot;
+    g_meta_info.boot_pending = 0U;
+    g_meta_info.confirmed = 1U;
+
+    BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
+                (BL_Slot_t)g_meta_info.target_slot,
+                (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
+                g_meta_info.confirmed, g_meta_info.size, g_meta_info.crc32,
+                g_meta_info.version);
+
+    g_idle_printed = 0U;
+    g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+  } else if (meta_valid && ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
+                            (g_meta_info.status == BL_META_STATUS_ERROR))) {
     printf("Meta says update not finished, stay in bootloader.\r\n");
     g_idle_printed = 0U;
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
@@ -58,17 +139,22 @@ void Bootloader_Run(void) {
     printf("Enter update mode.\r\n");
     g_idle_printed = 0U;
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
-  } else if (BL_IsAppValid(APP_FLASH_START_ADDR)) {
-    printf("App valid, jump now...\r\n");
-
-    while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
-    }
-
-    BL_JumpToApp(APP_FLASH_START_ADDR);
   } else {
-    printf("No valid app found, stay in bootloader.\r\n");
-    g_idle_printed = 0U;
-    g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    uint32_t app_addr = BL_GetActiveAppAddress();
+    uint32_t app_size = BL_GetSlotSize((BL_Slot_t)g_meta_info.active_slot);
+
+    if (BL_IsAppValid(app_addr, app_size)) {
+      printf("App valid in slot %c, jump now...\r\n", g_meta_info.active_slot);
+
+      while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
+      }
+
+      BL_JumpToApp(app_addr, app_size);
+    } else {
+      printf("No valid app found in active slot, stay in bootloader.\r\n");
+      g_idle_printed = 0U;
+      g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    }
   }
 
   while (1) {
@@ -89,16 +175,27 @@ void Bootloader_Run(void) {
 
           g_fw_total_size = g_fw_header.size;
           g_fw_remaining_size = g_fw_header.size;
-          g_fw_write_addr = APP_FLASH_START_ADDR;
+          g_meta_info.target_slot =
+              BL_GetInactiveSlot((BL_Slot_t)g_meta_info.active_slot);
+          g_fw_write_addr = BL_GetTargetAppAddress();
           g_calc_crc32 = 0;
 
-          if (BL_Flash_Erase_AppArea() != HAL_OK) {
+          printf("Target slot=%c, write_addr=0x%08lX\r\n",
+                 g_meta_info.target_slot, g_fw_write_addr);
+
+          if (BL_Flash_Erase_Area(BL_GetTargetAppAddress(),
+                                  BL_GetTargetAppSize()) != HAL_OK) {
             printf("Flash erase failed.\r\n");
             g_bl_ctx.state = BL_STATE_ERROR;
           } else {
-            printf("Flash erase OK.\r\n");
-            BL_Meta_Set(BL_META_STATUS_UPDATING, g_fw_header.size,
-                        g_fw_header.crc32, g_fw_header.version);
+            printf("Flash erase OK. target_slot=%c, addr=0x%08lX\r\n",
+                   g_meta_info.target_slot, g_fw_write_addr);
+
+            BL_Meta_Set(
+                BL_META_STATUS_UPDATING, (BL_Slot_t)g_meta_info.active_slot,
+                (BL_Slot_t)g_meta_info.target_slot,
+                (BL_Slot_t)g_meta_info.active_slot, 0U, 0U, g_fw_header.size,
+                g_fw_header.crc32, g_fw_header.version);
 
             g_bl_ctx.state = BL_STATE_RECV_DATA;
           }
@@ -151,40 +248,62 @@ void Bootloader_Run(void) {
     }
 
     case BL_STATE_VERIFY_CRC:
-      g_calc_crc32 = BL_CRC32_Calculate((const uint8_t *)APP_FLASH_START_ADDR,
-                                        g_fw_total_size);
+      g_calc_crc32 = BL_CRC32_Calculate(
+          (const uint8_t *)BL_GetTargetAppAddress(), g_fw_total_size);
       printf("Verify CRC stage. calc=0x%08lX, expected=0x%08lX\r\n",
              g_calc_crc32, g_bl_ctx.expected_crc32);
 
       if (g_calc_crc32 == g_bl_ctx.expected_crc32) {
         printf("CRC OK.\r\n");
-        BL_Meta_Set(BL_META_STATUS_OK, g_fw_total_size, g_bl_ctx.expected_crc32,
-                    g_bl_ctx.version);
+
+        {
+          BL_Slot_t old_slot = (BL_Slot_t)g_meta_info.active_slot;
+          BL_Slot_t new_slot = (BL_Slot_t)g_meta_info.target_slot;
+
+          g_meta_info.active_slot = new_slot;
+          g_meta_info.rollback_slot = old_slot;
+          g_meta_info.target_slot = BL_GetInactiveSlot(new_slot);
+          g_meta_info.boot_pending = 1U;
+          g_meta_info.confirmed = 0U;
+
+          BL_Meta_Set(
+              BL_META_STATUS_TESTING, (BL_Slot_t)g_meta_info.active_slot,
+              (BL_Slot_t)g_meta_info.target_slot,
+              (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
+              g_meta_info.confirmed, g_fw_total_size, g_bl_ctx.expected_crc32,
+              g_bl_ctx.version);
+        }
+
         g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
       } else {
         printf("CRC mismatch.\r\n");
-        BL_Meta_Set(BL_META_STATUS_ERROR, g_fw_total_size,
-                    g_bl_ctx.expected_crc32, g_bl_ctx.version);
+        BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
+                    (BL_Slot_t)g_meta_info.target_slot,
+                    (BL_Slot_t)g_meta_info.rollback_slot, 0U, 0U,
+                    g_fw_total_size, g_bl_ctx.expected_crc32, g_bl_ctx.version);
 
         g_bl_ctx.state = BL_STATE_ERROR;
       }
       break;
 
     case BL_STATE_PROGRAM_DONE:
-      printf("Program done.\r\n");
-      printf("Update success. You may reset and run app.\r\n");
+      printf("Update success. Active slot switched to %c. You may reset and "
+             "run app.\r\n",
+             g_meta_info.active_slot);
+      g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_IDLE;
       break;
 
     case BL_STATE_ERROR:
-      printf("Bootloader error.\r\n");
-      printf("Update failed. Stay in bootloader.\r\n");
-      g_bl_ctx.state = BL_STATE_IDLE;
+      printf("Bootloader error!!!\r\n");
+      printf("Update failed!!!\r\n");
+      g_idle_printed = 0U;
+      g_bl_ctx.state = BL_STATE_WAIT_HEADER;
       break;
 
     case BL_STATE_IDLE:
       if (g_idle_printed == 0U) {
-        printf("Bootloader idle, waiting for next action.\r\n");
+        printf("Bootloader idle. Reset to run app.\r\n");
         g_idle_printed = 1U;
       }
       HAL_Delay(100);
@@ -246,4 +365,50 @@ static uint8_t BL_ReceiveData(uint8_t *buf, uint32_t len) {
   }
 
   return 1;
+}
+
+static uint32_t BL_GetSlotAddress(BL_Slot_t slot) {
+  if (slot == BL_SLOT_A) {
+    return APP_SLOT_A_ADDR;
+  } else if (slot == BL_SLOT_B) {
+    return APP_SLOT_B_ADDR;
+  }
+
+  return APP_SLOT_A_ADDR;
+}
+
+static uint32_t BL_GetActiveAppAddress(void) {
+  if (g_meta_info.active_slot == BL_SLOT_B) {
+    return APP_SLOT_B_ADDR;
+  }
+
+  return APP_SLOT_A_ADDR;
+}
+
+static BL_Slot_t BL_GetInactiveSlot(BL_Slot_t active_slot) {
+  if (active_slot == BL_SLOT_A) {
+    return BL_SLOT_B;
+  } else if (active_slot == BL_SLOT_B) {
+    return BL_SLOT_A;
+  }
+
+  return BL_SLOT_B;
+}
+
+static uint32_t BL_GetTargetAppAddress(void) {
+  return BL_GetSlotAddress((BL_Slot_t)g_meta_info.target_slot);
+}
+
+static uint32_t BL_GetSlotSize(BL_Slot_t slot) {
+  if (slot == BL_SLOT_A) {
+    return APP_SLOT_A_SIZE;
+  } else if (slot == BL_SLOT_B) {
+    return APP_SLOT_B_SIZE;
+  }
+
+  return APP_SLOT_A_SIZE;
+}
+
+static uint32_t BL_GetTargetAppSize(void) {
+  return BL_GetSlotSize((BL_Slot_t)g_meta_info.target_slot);
 }

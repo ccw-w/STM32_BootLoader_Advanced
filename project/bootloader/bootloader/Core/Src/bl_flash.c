@@ -3,7 +3,7 @@
 
 /* 封装FLash擦除、写入、读取 */
 
-HAL_StatusTypeDef BL_Flash_Erase_AppArea(void)
+HAL_StatusTypeDef BL_Flash_Erase_Area(uint32_t start_addr, uint32_t size)
 {
     HAL_StatusTypeDef status;
     FLASH_EraseInitTypeDef erase_init = {0};
@@ -12,8 +12,8 @@ HAL_StatusTypeDef BL_Flash_Erase_AppArea(void)
     HAL_FLASH_Unlock();
 
     erase_init.TypeErase = FLASH_TYPEERASE_PAGES;
-    erase_init.PageAddress = APP_FLASH_START_ADDR;
-    erase_init.NbPages = APP_FLASH_SIZE / 1024U;   /* F1 每页 1KB */
+    erase_init.PageAddress = start_addr;
+    erase_init.NbPages = size / 1024U;
 
     status = HAL_FLASHEx_Erase(&erase_init, &page_error);
 

@@ -5,7 +5,7 @@
 
 #include "bl_config.h"
 
-uint8_t BL_IsAppValid(uint32_t app_addr);
-void BL_JumpToApp(uint32_t app_addr);
+uint8_t BL_IsAppValid(uint32_t app_addr, uint32_t app_size);
+void BL_JumpToApp(uint32_t app_addr, uint32_t app_size);
 
 #endif

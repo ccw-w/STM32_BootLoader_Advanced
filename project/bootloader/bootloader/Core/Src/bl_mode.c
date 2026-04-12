@@ -1,11 +1,22 @@
 #include "bl_mode.h"
+#include "usart.h"
+#include <string.h>
+#include <stdio.h>
 
-/*
- * 当前先用最简单策略：
- * 0 = 不主动进入升级模式
- * 后面再改成按键 / 串口命令 / Flash标志位
- */
 uint8_t BL_ShouldEnterUpdateMode(void)
 {
-    return 1;
+    uint8_t rx_buf[8] = {0};
+
+    printf("Press update command in 2s...\r\n");
+
+    if (HAL_UART_Receive(&huart1, rx_buf, 6, 2000) == HAL_OK)
+    {
+        if (memcmp(rx_buf, "update", 6) == 0)
+        {
+            printf("Update command detected.\r\n");
+            return 1;
+        }
+    }
+
+    return 0;
 }

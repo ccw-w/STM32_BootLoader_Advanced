@@ -1,0 +1,21 @@
+格式：
+FWBL
+4C 42 57 46 18 0C 00 00 88 A9 0C B6 01 00 00 00
+   magic 4   |    size 4     |     crc324   |  version4  
+
+小端
+
+//在线CRC计算
+https://www.codertools.net/tools/crc.php?lang=zh
+//十六进制转换
+https://lzltool.cn/Toolkit/ConvertStringToHexadecimal
+------------------------------------------------------------
+------------------------------------------------------------
+
+header_A  1秒闪一次
+4C 42 57 46 D0 0F 00 00 EE 3A FE 2E 01 00 00 00
+
+header_B  150毫秒闪一次
+4C 42 57 46 CC 0F 00 00 40 94 17 CB 02 00 00 00
+
+
