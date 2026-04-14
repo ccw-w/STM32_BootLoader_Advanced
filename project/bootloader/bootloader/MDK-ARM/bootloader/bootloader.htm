@@ -3,7 +3,7 @@
 <title>Static Call Graph - [bootloader\bootloader.axf]</title></head>
 <body><HR>
 <H1>Static Call Graph for image bootloader\bootloader.axf</H1><HR>
-<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Sun Apr 12 21:53:23 2026
+<BR><P>#&#060CALLGRAPH&#062# ARM Linker, 5060960: Last Updated: Wed Apr 15 00:20:45 2026
 <BR><P>
 <H3>Maximum Stack Usage =        152 bytes + Unknown(Cycles, Untraceable Function Pointers)</H3><H3>
 Call chain for Maximum Stack Depth:</H3>
@@ -372,7 +372,7 @@ Global Symbols
 <BR><BR>[Called By]<UL><LI><a href="#[51]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;Bootloader_Run
 </UL>
 
-<P><STRONG><a name="[51]"></a>Bootloader_Run</STRONG> (Thumb, 1980 bytes, Stack size 24 bytes, bootloader.o(i.Bootloader_Run))
+<P><STRONG><a name="[51]"></a>Bootloader_Run</STRONG> (Thumb, 2058 bytes, Stack size 24 bytes, bootloader.o(i.Bootloader_Run))
 <BR><BR>[Stack]<UL><LI>Max Depth = 152<LI>Call Chain = Bootloader_Run &rArr; BL_Meta_Set &rArr; BL_Meta_WriteWord &rArr; HAL_FLASH_Program &rArr; FLASH_WaitForLastOperation
 </UL>
 <BR>[Calls]<UL><LI><a href="#[56]">&gt;&gt;</a>&nbsp;&nbsp;&nbsp;HAL_Delay

@@ -62,10 +62,7 @@ void Bootloader_Run(void) {
 
   HAL_Delay(BL_JUMP_DELAY_MS);
 
-  /* 启动决策 */
-  HAL_Delay(BL_JUMP_DELAY_MS);
-
-  /* 启动决策：保留 TESTING / rollback */
+  /* 启动决策：TESTING / rollback / 正常启动 */
   if (meta_valid && (g_meta_info.status == BL_META_STATUS_TESTING) &&
       (g_meta_info.confirmed == 0U) && (g_meta_info.boot_pending == 1U)) {
     uint32_t app_addr = BL_GetActiveAppAddress();
@@ -112,6 +109,9 @@ void Bootloader_Run(void) {
   } else if (meta_valid && (g_meta_info.status == BL_META_STATUS_TESTING) &&
              (g_meta_info.confirmed == 0U) &&
              (g_meta_info.boot_pending == 0U)) {
+    uint32_t app_addr;
+    uint32_t app_size;
+
     printf("New app not confirmed, rollback to slot %c.\r\n",
            g_meta_info.rollback_slot);
 
@@ -122,14 +122,28 @@ void Bootloader_Run(void) {
     g_meta_info.boot_pending = 0U;
     g_meta_info.confirmed = 1U;
 
-    BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
+    BL_Meta_Set(BL_META_STATUS_OK, (BL_Slot_t)g_meta_info.active_slot,
                 (BL_Slot_t)g_meta_info.target_slot,
                 (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
                 g_meta_info.confirmed, g_meta_info.size, g_meta_info.crc32,
                 g_meta_info.version);
 
-    g_idle_printed = 0U;
-    g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    app_addr = BL_GetActiveAppAddress();
+    app_size = BL_GetSlotSize((BL_Slot_t)g_meta_info.active_slot);
+
+    if (BL_IsAppValid(app_addr, app_size)) {
+      printf("Rollback done. Jump back to slot %c.\r\n",
+             g_meta_info.active_slot);
+
+      while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
+      }
+
+      BL_JumpToApp(app_addr, app_size);
+    } else {
+      printf("Rollback slot invalid, stay in bootloader.\r\n");
+      g_idle_printed = 0U;
+      g_bl_ctx.state = BL_STATE_WAIT_HEADER;
+    }
   } else if (meta_valid && ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
                             (g_meta_info.status == BL_META_STATUS_ERROR))) {
     printf("Meta says update not finished, stay in bootloader.\r\n");

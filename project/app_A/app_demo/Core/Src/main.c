@@ -91,7 +91,8 @@ int main(void)
 	SystemClock_Config();
 	MX_GPIO_Init();
 	__enable_irq();
-	APP_ConfirmBootIfNeeded();
+	//»Ø¹ö²âÊÔ
+	//APP_ConfirmBootIfNeeded();
   /* USER CODE END 2 */
 
   /* Infinite loop */
