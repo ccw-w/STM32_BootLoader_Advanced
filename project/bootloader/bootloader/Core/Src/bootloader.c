@@ -12,13 +12,11 @@
 
 static BL_Context_t g_bl_ctx;
 static BL_FirmwareHeader_t g_fw_header; // 后面收到16个字节后解析出固件头结果
-static uint8_t g_header_buf[sizeof(BL_FirmwareHeader_t)]; // 接收固件头的缓冲区
-static uint8_t g_header_received = 0; // 已经接收的固件头字节数
-static uint8_t g_fw_data_buf[256];    // 固件数据接收缓冲区，测试先接收256字节
-static uint32_t g_fw_data_len = 0;    // 实际收到了多少字节
-static uint32_t g_calc_crc32 = 0;     // 已经接收数据的 CRC32
-static uint32_t g_fw_write_addr = 0;  // 当前写到 Flash 的地址
-static uint32_t g_fw_total_size = 0;  // 这次固件大小
+static uint8_t g_fw_data_buf[256];      // 固件数据接收缓冲区，测试先接收256字节
+static uint32_t g_fw_data_len = 0;      // 实际收到了多少字节
+static uint32_t g_calc_crc32 = 0;       // 已经接收数据的 CRC32
+static uint32_t g_fw_write_addr = 0;    // 当前写到 Flash 的地址
+static uint32_t g_fw_total_size = 0;    // 这次固件大小
 static uint32_t g_fw_remaining_size = 0; // 还剩下多少字节没有接收
 static BL_MetaInfo_t g_meta_info;
 static uint8_t g_idle_printed = 0;
@@ -309,8 +307,8 @@ void Bootloader_Run(void) {
       break;
 
     case BL_STATE_ERROR:
-      printf("Bootloader error!!!\r\n");
-      printf("Update failed!!!\r\n");
+      printf("Bootloader error.\r\n");
+      printf("Update failed. Waiting firmware header...\r\n");
       g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_WAIT_HEADER;
       break;
