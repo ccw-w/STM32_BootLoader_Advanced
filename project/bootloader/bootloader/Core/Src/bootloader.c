@@ -1,3 +1,16 @@
+/**
+ * @file    bootloader.c
+ * @brief   Bootloader main flow implementation
+ *
+ * Main responsibilities:
+ * 1. Read metadata from Flash
+ * 2. Decide boot action on power-up
+ * 3. Receive firmware header and data through UART
+ * 4. Program inactive slot
+ * 5. Verify full-image CRC32
+ * 6. Mark new image as TESTING
+ * 7. Test-boot new image and support rollback
+ */
 #include "bootloader.h"
 #include "bl_crc.h"
 #include "bl_flash.h"
@@ -20,9 +33,9 @@ static uint32_t g_fw_total_size = 0;    // 这次固件大小
 static uint32_t g_fw_remaining_size = 0; // 还剩下多少字节没有接收
 static BL_MetaInfo_t g_meta_info;
 static uint8_t g_idle_printed = 0;
+
 static uint32_t BL_GetSlotAddress(BL_Slot_t slot);
 static uint32_t BL_GetActiveAppAddress(void);
-
 static uint8_t BL_ReceiveHeader(BL_FirmwareHeader_t *header);
 static void BL_PrintHeader(const BL_FirmwareHeader_t *header);
 static uint8_t BL_ReceiveData(uint8_t *buf, uint32_t len);
@@ -35,6 +48,15 @@ static void BL_HandleWaitHeader(void);
 static void BL_HandleRecvData(void);
 static void BL_HandleVerifyCrc(void);
 
+/**
+ * @brief Bootloader main entry
+ *
+ * Flow:
+ * - print boot information
+ * - read metadata
+ * - decide boot action
+ * - enter state machine loop
+ */
 void Bootloader_Run(void) {
   memset(&g_fw_header, 0, sizeof(g_fw_header)); // 固件头清零
   memset(&g_meta_info, 0, sizeof(g_meta_info));
@@ -155,6 +177,9 @@ static uint8_t BL_ReceiveData(uint8_t *buf, uint32_t len) {
   return 1;
 }
 
+/**
+ * @brief Return Flash start address of a slot
+ */
 static uint32_t BL_GetSlotAddress(BL_Slot_t slot) {
   if (slot == BL_SLOT_A) {
     return APP_SLOT_A_ADDR;
@@ -165,6 +190,9 @@ static uint32_t BL_GetSlotAddress(BL_Slot_t slot) {
   return APP_SLOT_A_ADDR;
 }
 
+/**
+ * @brief Return application address of current active slot
+ */
 static uint32_t BL_GetActiveAppAddress(void) {
   if (g_meta_info.active_slot == BL_SLOT_B) {
     return APP_SLOT_B_ADDR;
@@ -173,6 +201,9 @@ static uint32_t BL_GetActiveAppAddress(void) {
   return APP_SLOT_A_ADDR;
 }
 
+/**
+ * @brief Return the inactive slot according to current active slot
+ */
 static BL_Slot_t BL_GetInactiveSlot(BL_Slot_t active_slot) {
   if (active_slot == BL_SLOT_A) {
     return BL_SLOT_B;
@@ -183,10 +214,16 @@ static BL_Slot_t BL_GetInactiveSlot(BL_Slot_t active_slot) {
   return BL_SLOT_B;
 }
 
+/**
+ * @brief Return Flash address of current target slot
+ */
 static uint32_t BL_GetTargetAppAddress(void) {
   return BL_GetSlotAddress((BL_Slot_t)g_meta_info.target_slot);
 }
 
+/**
+ * @brief Return slot size in bytes
+ */
 static uint32_t BL_GetSlotSize(BL_Slot_t slot) {
   if (slot == BL_SLOT_A) {
     return APP_SLOT_A_SIZE;
@@ -197,10 +234,23 @@ static uint32_t BL_GetSlotSize(BL_Slot_t slot) {
   return APP_SLOT_A_SIZE;
 }
 
+/**
+ * @brief Return size of current target slot
+ */
 static uint32_t BL_GetTargetAppSize(void) {
   return BL_GetSlotSize((BL_Slot_t)g_meta_info.target_slot);
 }
 
+/**
+ * @brief Handle boot decision after power-on
+ *
+ * Cases:
+ * - TESTING image first boot
+ * - rollback on unconfirmed image
+ * - stay in bootloader for unfinished update
+ * - enter update mode by command
+ * - jump to active application
+ */
 static void BL_HandleBootDecision(uint8_t meta_valid) {
   if (meta_valid && (g_meta_info.status == BL_META_STATUS_TESTING) &&
       (g_meta_info.confirmed == 0U) && (g_meta_info.boot_pending == 1U)) {
@@ -310,6 +360,16 @@ static void BL_HandleBootDecision(uint8_t meta_valid) {
   }
 }
 
+/**
+ * @brief Handle firmware header reception state
+ *
+ * Responsibilities:
+ * - wait for fixed-size firmware header
+ * - validate header fields
+ * - prepare target slot information
+ * - erase target slot area
+ * - switch state to data reception
+ */
 static void BL_HandleWaitHeader(void) {
   printf("Waiting firmware header...\r\n");
 
@@ -359,6 +419,15 @@ static void BL_HandleWaitHeader(void) {
   }
 }
 
+/**
+ * @brief Handle firmware data reception state
+ *
+ * Responsibilities:
+ * - receive firmware in chunks
+ * - write chunk into Flash
+ * - update write address and remaining size
+ * - switch to CRC verification when reception is complete
+ */
 static void BL_HandleRecvData(void) {
   uint32_t recv_len;
 
@@ -396,6 +465,14 @@ static void BL_HandleRecvData(void) {
   }
 }
 
+/**
+ * @brief Handle full-image CRC verification state
+ *
+ * Responsibilities:
+ * - calculate CRC32 over the target slot
+ * - compare with expected CRC from firmware header
+ * - update metadata on success or failure
+ */
 static void BL_HandleVerifyCrc(void) {
   g_calc_crc32 = BL_CRC32_Calculate((const uint8_t *)BL_GetTargetAppAddress(),
                                     g_fw_total_size);
