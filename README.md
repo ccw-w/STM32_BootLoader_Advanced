@@ -69,8 +69,8 @@ project/
 └─ app_B/
    └─ app_demo/            # Application project for Slot B
 
-docs/                      # Notes and helper documents
-test_notes/                # Test binaries and header examples
+docs/
+└─test_notes/              # Test notes and flow documents
 ```
 
 ---
@@ -233,8 +233,8 @@ project/
 └─ app_B/
    └─ app_demo/            # B 槽版 App 工程
 
-docs/                      # 说明文档
-test_notes/                # 测试 bin 和头示例
+docs/
+└─test_notes/              # 测试说明与流程文档
 ```
 
 ---
@@ -243,6 +243,8 @@ test_notes/                # 测试 bin 和头示例
 
 - `docs/test_notes/test_cases.md`：测试用例与测试项说明
 - `docs/test_notes/boot_flow.md`：Bootloader 启动与升级流程说明
+
+---
 
 ## 主要工程
 
