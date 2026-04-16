@@ -33,6 +33,7 @@ static uint32_t BL_GetTargetAppSize(void);
 static void BL_HandleBootDecision(uint8_t meta_valid);
 static void BL_HandleWaitHeader(void);
 static void BL_HandleRecvData(void);
+static void BL_HandleVerifyCrc(void);
 
 void Bootloader_Run(void) {
   memset(&g_fw_header, 0, sizeof(g_fw_header)); // 固件头清零
@@ -70,50 +71,12 @@ void Bootloader_Run(void) {
     case BL_STATE_WAIT_HEADER:
       BL_HandleWaitHeader();
       break;
-
     case BL_STATE_RECV_DATA:
       BL_HandleRecvData();
       break;
-
     case BL_STATE_VERIFY_CRC:
-      g_calc_crc32 = BL_CRC32_Calculate(
-          (const uint8_t *)BL_GetTargetAppAddress(), g_fw_total_size);
-      printf("Verify CRC stage. calc=0x%08lX, expected=0x%08lX\r\n",
-             g_calc_crc32, g_bl_ctx.expected_crc32);
-
-      if (g_calc_crc32 == g_bl_ctx.expected_crc32) {
-        printf("CRC OK.\r\n");
-
-        {
-          BL_Slot_t old_slot = (BL_Slot_t)g_meta_info.active_slot;
-          BL_Slot_t new_slot = (BL_Slot_t)g_meta_info.target_slot;
-
-          g_meta_info.active_slot = new_slot;
-          g_meta_info.rollback_slot = old_slot;
-          g_meta_info.target_slot = BL_GetInactiveSlot(new_slot);
-          g_meta_info.boot_pending = 1U;
-          g_meta_info.confirmed = 0U;
-
-          BL_Meta_Set(
-              BL_META_STATUS_TESTING, (BL_Slot_t)g_meta_info.active_slot,
-              (BL_Slot_t)g_meta_info.target_slot,
-              (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
-              g_meta_info.confirmed, g_fw_total_size, g_bl_ctx.expected_crc32,
-              g_bl_ctx.version);
-        }
-
-        g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
-      } else {
-        printf("CRC mismatch.\r\n");
-        BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
-                    (BL_Slot_t)g_meta_info.target_slot,
-                    (BL_Slot_t)g_meta_info.rollback_slot, 0U, 0U,
-                    g_fw_total_size, g_bl_ctx.expected_crc32, g_bl_ctx.version);
-
-        g_bl_ctx.state = BL_STATE_ERROR;
-      }
+      BL_HandleVerifyCrc();
       break;
-
     case BL_STATE_PROGRAM_DONE:
       printf("Update success. Active slot switched to %c. You may reset and "
              "run app.\r\n",
@@ -432,6 +395,46 @@ static void BL_HandleRecvData(void) {
     }
   } else {
     printf("Recv data timeout.\r\n");
+    g_bl_ctx.state = BL_STATE_ERROR;
+  }
+}
+
+static void BL_HandleVerifyCrc(void) {
+  g_calc_crc32 = BL_CRC32_Calculate((const uint8_t *)BL_GetTargetAppAddress(),
+                                    g_fw_total_size);
+  printf("Verify CRC stage. calc=0x%08lX, expected=0x%08lX\r\n", g_calc_crc32,
+         g_bl_ctx.expected_crc32);
+
+  if (g_calc_crc32 == g_bl_ctx.expected_crc32) {
+    BL_Slot_t old_slot;
+    BL_Slot_t new_slot;
+
+    printf("CRC OK.\r\n");
+
+    old_slot = (BL_Slot_t)g_meta_info.active_slot;
+    new_slot = (BL_Slot_t)g_meta_info.target_slot;
+
+    g_meta_info.active_slot = new_slot;
+    g_meta_info.rollback_slot = old_slot;
+    g_meta_info.target_slot = BL_GetInactiveSlot(new_slot);
+    g_meta_info.boot_pending = 1U;
+    g_meta_info.confirmed = 0U;
+
+    BL_Meta_Set(BL_META_STATUS_TESTING, (BL_Slot_t)g_meta_info.active_slot,
+                (BL_Slot_t)g_meta_info.target_slot,
+                (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
+                g_meta_info.confirmed, g_fw_total_size, g_bl_ctx.expected_crc32,
+                g_bl_ctx.version);
+
+    g_bl_ctx.state = BL_STATE_PROGRAM_DONE;
+  } else {
+    printf("CRC mismatch.\r\n");
+
+    BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
+                (BL_Slot_t)g_meta_info.target_slot,
+                (BL_Slot_t)g_meta_info.rollback_slot, 0U, 0U, g_fw_total_size,
+                g_bl_ctx.expected_crc32, g_bl_ctx.version);
+
     g_bl_ctx.state = BL_STATE_ERROR;
   }
 }
