@@ -70,8 +70,21 @@ project/
    └─ app_demo/            # Application project for Slot B
 
 docs/                      # Notes and helper documents
-App_test_AandeB/           # Test binaries and header examples
+test_notes/                # Test binaries and header examples
 ```
+
+---
+
+## Document Navigation
+
+- `docs/test_notes/test_cases.md`: test cases and validation items
+- `docs/test_notes/boot_flow.md`: boot and upgrade flow description
+
+## Main Projects
+
+- `project/bootloader/bootloader/`: Bootloader project
+- `project/app_A/app_demo/`: application project for Slot A
+- `project/app_B/app_demo/`: application project for Slot B
 
 ---
 
@@ -221,8 +234,21 @@ project/
    └─ app_demo/            # B 槽版 App 工程
 
 docs/                      # 说明文档
-App_test_AandeB/           # 测试 bin 和头示例
+test_notes/                # 测试 bin 和头示例
 ```
+
+---
+
+## 文档导航
+
+- `docs/test_notes/test_cases.md`：测试用例与测试项说明
+- `docs/test_notes/boot_flow.md`：Bootloader 启动与升级流程说明
+
+## 主要工程
+
+- `project/bootloader/bootloader/`：Bootloader 工程
+- `project/app_A/app_demo/`：A 槽版应用工程
+- `project/app_B/app_demo/`：B 槽版应用工程
 
 ---
 
