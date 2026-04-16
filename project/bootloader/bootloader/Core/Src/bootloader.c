@@ -31,6 +31,8 @@ static uint32_t BL_GetTargetAppAddress(void);
 static uint32_t BL_GetSlotSize(BL_Slot_t slot);
 static uint32_t BL_GetTargetAppSize(void);
 static void BL_HandleBootDecision(uint8_t meta_valid);
+static void BL_HandleWaitHeader(void);
+static void BL_HandleRecvData(void);
 
 void Bootloader_Run(void) {
   memset(&g_fw_header, 0, sizeof(g_fw_header)); // 固件头清零
@@ -60,98 +62,18 @@ void Bootloader_Run(void) {
   printf("Active app addr: 0x%08lX\r\n", BL_GetActiveAppAddress());
 
   HAL_Delay(BL_JUMP_DELAY_MS);
-  
-  BL_HandleBootDecision(meta_valid);//启动决策
+
+  BL_HandleBootDecision(meta_valid); // 启动决策
 
   while (1) {
     switch (g_bl_ctx.state) {
     case BL_STATE_WAIT_HEADER:
-      printf("Waiting firmware header...\r\n");
-      if (BL_ReceiveHeader(
-              &g_fw_header)) { // 串口超时就打印Timeout，成功接收就打印Header内容并检查合法性
-        BL_PrintHeader(&g_fw_header); // 调试用，打印接收到的固件头信息
-
-        if (BL_CheckFirmwareHeader(&g_fw_header)) {
-          printf("Header OK.\r\n");
-
-          g_bl_ctx.expected_size = g_fw_header.size;
-          g_bl_ctx.expected_crc32 = g_fw_header.crc32;
-          g_bl_ctx.version = g_fw_header.version;
-          g_bl_ctx.recv_size = 0;
-
-          g_fw_total_size = g_fw_header.size;
-          g_fw_remaining_size = g_fw_header.size;
-          g_meta_info.target_slot =
-              BL_GetInactiveSlot((BL_Slot_t)g_meta_info.active_slot);
-          g_fw_write_addr = BL_GetTargetAppAddress();
-          g_calc_crc32 = 0;
-
-          printf("Target slot=%c, write_addr=0x%08lX\r\n",
-                 g_meta_info.target_slot, g_fw_write_addr);
-
-          if (BL_Flash_Erase_Area(BL_GetTargetAppAddress(),
-                                  BL_GetTargetAppSize()) != HAL_OK) {
-            printf("Flash erase failed.\r\n");
-            g_bl_ctx.state = BL_STATE_ERROR;
-          } else {
-            printf("Flash erase OK. target_slot=%c, addr=0x%08lX\r\n",
-                   g_meta_info.target_slot, g_fw_write_addr);
-
-            BL_Meta_Set(
-                BL_META_STATUS_UPDATING, (BL_Slot_t)g_meta_info.active_slot,
-                (BL_Slot_t)g_meta_info.target_slot,
-                (BL_Slot_t)g_meta_info.active_slot, 0U, 0U, g_fw_header.size,
-                g_fw_header.crc32, g_fw_header.version);
-
-            g_bl_ctx.state = BL_STATE_RECV_DATA;
-          }
-        } else {
-          printf("Header invalid.\r\n");
-          g_bl_ctx.state = BL_STATE_ERROR;
-        }
-      } else {
-        printf("Receive header timeout.\r\n");
-        g_bl_ctx.state = BL_STATE_ERROR;
-      }
+      BL_HandleWaitHeader();
       break;
 
-    case BL_STATE_RECV_DATA: {
-      uint32_t recv_len;
-
-      if (g_fw_remaining_size == 0U) {
-        g_bl_ctx.state = BL_STATE_VERIFY_CRC;
-        break;
-      }
-
-      recv_len = g_fw_remaining_size;
-      if (recv_len > sizeof(g_fw_data_buf)) {
-        recv_len = sizeof(g_fw_data_buf);
-      }
-
-      printf("Recv chunk. need=%lu, remaining=%lu\r\n", recv_len,
-             g_fw_remaining_size);
-
-      if (BL_ReceiveData(g_fw_data_buf, recv_len)) {
-        g_fw_data_len = recv_len;
-
-        if (BL_Flash_Write(g_fw_write_addr, g_fw_data_buf, g_fw_data_len) ==
-            HAL_OK) {
-          g_fw_write_addr += g_fw_data_len;
-          g_fw_remaining_size -= g_fw_data_len;
-          g_bl_ctx.recv_size += g_fw_data_len;
-
-          printf("Chunk write OK. recv_size=%lu, remaining=%lu\r\n",
-                 g_bl_ctx.recv_size, g_fw_remaining_size);
-        } else {
-          printf("Chunk write failed.\r\n");
-          g_bl_ctx.state = BL_STATE_ERROR;
-        }
-      } else {
-        printf("Recv data timeout.\r\n");
-        g_bl_ctx.state = BL_STATE_ERROR;
-      }
+    case BL_STATE_RECV_DATA:
+      BL_HandleRecvData();
       break;
-    }
 
     case BL_STATE_VERIFY_CRC:
       g_calc_crc32 = BL_CRC32_Calculate(
@@ -336,30 +258,22 @@ static void BL_HandleBootDecision(uint8_t meta_valid) {
       g_meta_info.boot_pending = 0U;
       g_meta_info.confirmed = 1U;
 
-      BL_Meta_Set(BL_META_STATUS_ERROR,
-                  (BL_Slot_t)g_meta_info.active_slot,
+      BL_Meta_Set(BL_META_STATUS_ERROR, (BL_Slot_t)g_meta_info.active_slot,
                   (BL_Slot_t)g_meta_info.target_slot,
                   (BL_Slot_t)g_meta_info.rollback_slot,
-                  g_meta_info.boot_pending,
-                  g_meta_info.confirmed,
-                  g_meta_info.size,
-                  g_meta_info.crc32,
-                  g_meta_info.version);
+                  g_meta_info.boot_pending, g_meta_info.confirmed,
+                  g_meta_info.size, g_meta_info.crc32, g_meta_info.version);
 
       g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_WAIT_HEADER;
     } else {
       g_meta_info.boot_pending = 0U;
 
-      BL_Meta_Set(BL_META_STATUS_TESTING,
-                  (BL_Slot_t)g_meta_info.active_slot,
+      BL_Meta_Set(BL_META_STATUS_TESTING, (BL_Slot_t)g_meta_info.active_slot,
                   (BL_Slot_t)g_meta_info.target_slot,
                   (BL_Slot_t)g_meta_info.rollback_slot,
-                  g_meta_info.boot_pending,
-                  0U,
-                  g_meta_info.size,
-                  g_meta_info.crc32,
-                  g_meta_info.version);
+                  g_meta_info.boot_pending, 0U, g_meta_info.size,
+                  g_meta_info.crc32, g_meta_info.version);
 
       while (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_TC) == RESET) {
       }
@@ -386,14 +300,10 @@ static void BL_HandleBootDecision(uint8_t meta_valid) {
     g_meta_info.boot_pending = 0U;
     g_meta_info.confirmed = 1U;
 
-    BL_Meta_Set(BL_META_STATUS_OK,
-                (BL_Slot_t)g_meta_info.active_slot,
+    BL_Meta_Set(BL_META_STATUS_OK, (BL_Slot_t)g_meta_info.active_slot,
                 (BL_Slot_t)g_meta_info.target_slot,
-                (BL_Slot_t)g_meta_info.rollback_slot,
-                g_meta_info.boot_pending,
-                g_meta_info.confirmed,
-                g_meta_info.size,
-                g_meta_info.crc32,
+                (BL_Slot_t)g_meta_info.rollback_slot, g_meta_info.boot_pending,
+                g_meta_info.confirmed, g_meta_info.size, g_meta_info.crc32,
                 g_meta_info.version);
 
     app_addr = BL_GetActiveAppAddress();
@@ -412,9 +322,8 @@ static void BL_HandleBootDecision(uint8_t meta_valid) {
       g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_WAIT_HEADER;
     }
-  } else if (meta_valid &&
-             ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
-              (g_meta_info.status == BL_META_STATUS_ERROR))) {
+  } else if (meta_valid && ((g_meta_info.status == BL_META_STATUS_UPDATING) ||
+                            (g_meta_info.status == BL_META_STATUS_ERROR))) {
     printf("Meta says update not finished, stay in bootloader.\r\n");
     g_idle_printed = 0U;
     g_bl_ctx.state = BL_STATE_WAIT_HEADER;
@@ -438,5 +347,91 @@ static void BL_HandleBootDecision(uint8_t meta_valid) {
       g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_WAIT_HEADER;
     }
+  }
+}
+
+static void BL_HandleWaitHeader(void) {
+  printf("Waiting firmware header...\r\n");
+
+  if (BL_ReceiveHeader(&g_fw_header)) {
+    BL_PrintHeader(&g_fw_header);
+
+    if (BL_CheckFirmwareHeader(&g_fw_header)) {
+      printf("Header OK.\r\n");
+
+      g_bl_ctx.expected_size = g_fw_header.size;
+      g_bl_ctx.expected_crc32 = g_fw_header.crc32;
+      g_bl_ctx.version = g_fw_header.version;
+      g_bl_ctx.recv_size = 0;
+
+      g_fw_total_size = g_fw_header.size;
+      g_fw_remaining_size = g_fw_header.size;
+      g_meta_info.target_slot =
+          BL_GetInactiveSlot((BL_Slot_t)g_meta_info.active_slot);
+      g_fw_write_addr = BL_GetTargetAppAddress();
+      g_calc_crc32 = 0;
+
+      printf("Target slot=%c, write_addr=0x%08lX\r\n", g_meta_info.target_slot,
+             g_fw_write_addr);
+
+      if (BL_Flash_Erase_Area(BL_GetTargetAppAddress(),
+                              BL_GetTargetAppSize()) != HAL_OK) {
+        printf("Flash erase failed.\r\n");
+        g_bl_ctx.state = BL_STATE_ERROR;
+      } else {
+        printf("Flash erase OK. target_slot=%c, addr=0x%08lX\r\n",
+               g_meta_info.target_slot, g_fw_write_addr);
+
+        BL_Meta_Set(BL_META_STATUS_UPDATING, (BL_Slot_t)g_meta_info.active_slot,
+                    (BL_Slot_t)g_meta_info.target_slot,
+                    (BL_Slot_t)g_meta_info.active_slot, 0U, 0U,
+                    g_fw_header.size, g_fw_header.crc32, g_fw_header.version);
+
+        g_bl_ctx.state = BL_STATE_RECV_DATA;
+      }
+    } else {
+      printf("Header invalid.\r\n");
+      g_bl_ctx.state = BL_STATE_ERROR;
+    }
+  } else {
+    printf("Receive header timeout.\r\n");
+    g_bl_ctx.state = BL_STATE_ERROR;
+  }
+}
+
+static void BL_HandleRecvData(void) {
+  uint32_t recv_len;
+
+  if (g_fw_remaining_size == 0U) {
+    g_bl_ctx.state = BL_STATE_VERIFY_CRC;
+    return;
+  }
+
+  recv_len = g_fw_remaining_size;
+  if (recv_len > sizeof(g_fw_data_buf)) {
+    recv_len = sizeof(g_fw_data_buf);
+  }
+
+  printf("Recv chunk. need=%lu, remaining=%lu\r\n", recv_len,
+         g_fw_remaining_size);
+
+  if (BL_ReceiveData(g_fw_data_buf, recv_len)) {
+    g_fw_data_len = recv_len;
+
+    if (BL_Flash_Write(g_fw_write_addr, g_fw_data_buf, g_fw_data_len) ==
+        HAL_OK) {
+      g_fw_write_addr += g_fw_data_len;
+      g_fw_remaining_size -= g_fw_data_len;
+      g_bl_ctx.recv_size += g_fw_data_len;
+
+      printf("Chunk write OK. recv_size=%lu, remaining=%lu\r\n",
+             g_bl_ctx.recv_size, g_fw_remaining_size);
+    } else {
+      printf("Chunk write failed.\r\n");
+      g_bl_ctx.state = BL_STATE_ERROR;
+    }
+  } else {
+    printf("Recv data timeout.\r\n");
+    g_bl_ctx.state = BL_STATE_ERROR;
   }
 }
