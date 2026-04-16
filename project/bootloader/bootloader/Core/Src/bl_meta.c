@@ -1,10 +1,26 @@
+/**
+ * @file    bl_meta.c
+ * @brief   Metadata read/write implementation
+ *
+ * The metadata area is used to store:
+ * - upgrade status
+ * - active / target / rollback slot
+ * - boot confirmation flags
+ * - firmware size / CRC / version
+ */
 #include "bl_meta.h"
 #include "bl_config.h"
 
+/**
+ * @brief Program one 32-bit word into metadata area
+ */
 static HAL_StatusTypeDef BL_Meta_WriteWord(uint32_t addr, uint32_t value) {
   return HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, value);
 }
 
+/**
+ * @brief Erase metadata page and write a full metadata record
+ */
 void BL_Meta_Set(BL_MetaStatus_t status, BL_Slot_t active_slot,
                  BL_Slot_t target_slot, BL_Slot_t rollback_slot,
                  uint32_t boot_pending, uint32_t confirmed, uint32_t size,
@@ -34,6 +50,9 @@ void BL_Meta_Set(BL_MetaStatus_t status, BL_Slot_t active_slot,
   HAL_FLASH_Lock();
 }
 
+/**
+ * @brief Clear metadata page
+ */
 void BL_Meta_Clear(void) {
   FLASH_EraseInitTypeDef erase_init = {0};
   uint32_t page_error = 0;
@@ -49,6 +68,11 @@ void BL_Meta_Clear(void) {
   HAL_FLASH_Lock();
 }
 
+/**
+ * @brief Read and validate metadata from Flash
+ * @retval 1: metadata is valid
+ * @retval 0: metadata is invalid
+ */
 uint8_t BL_Meta_Read(BL_MetaInfo_t *info) {
   if (info == 0) {
     return 0;
