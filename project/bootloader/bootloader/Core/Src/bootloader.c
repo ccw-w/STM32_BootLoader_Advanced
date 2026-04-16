@@ -78,20 +78,18 @@ void Bootloader_Run(void) {
       BL_HandleVerifyCrc();
       break;
     case BL_STATE_PROGRAM_DONE:
-      printf("Update success. Active slot switched to %c. You may reset and "
-             "run app.\r\n",
+      printf("Update success. Active slot switched to %c.\r\n",
              g_meta_info.active_slot);
-      g_idle_printed = 0U;
+      printf("Bootloader idle. Reset to run app.\r\n");
+      g_idle_printed = 1U;
       g_bl_ctx.state = BL_STATE_IDLE;
       break;
-
     case BL_STATE_ERROR:
       printf("Bootloader error.\r\n");
       printf("Update failed. Waiting firmware header...\r\n");
       g_idle_printed = 0U;
       g_bl_ctx.state = BL_STATE_WAIT_HEADER;
       break;
-
     case BL_STATE_IDLE:
       if (g_idle_printed == 0U) {
         printf("Bootloader idle. Reset to run app.\r\n");
@@ -99,7 +97,6 @@ void Bootloader_Run(void) {
       }
       HAL_Delay(100);
       break;
-
     default:
       HAL_Delay(100);
       break;
