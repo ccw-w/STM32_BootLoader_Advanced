@@ -1,5 +1,17 @@
+/**
+ * @file    app_confirm.c
+ * @brief   Application-side boot confirmation implementation
+ *
+ * This module is used by the application to confirm
+ * that the new image booted successfully.
+ */
 #include "app_confirm.h"
 
+/**
+ * @brief Read metadata from Flash
+ * @retval 1: valid metadata
+ * @retval 0: invalid metadata
+ */
 static uint8_t APP_Meta_Read(APP_MetaInfo_t *info)
 {
     if (info == 0)
@@ -26,11 +38,17 @@ static uint8_t APP_Meta_Read(APP_MetaInfo_t *info)
     return 1;
 }
 
+/**
+ * @brief Program one 32-bit word into metadata area
+ */
 static HAL_StatusTypeDef APP_Meta_WriteWord(uint32_t addr, uint32_t value)
 {
     return HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, value);
 }
 
+/**
+ * @brief Rewrite metadata page with confirmed boot result
+ */
 static void APP_Meta_WriteConfirmed(const APP_MetaInfo_t *info)
 {
     FLASH_EraseInitTypeDef erase_init = {0};
@@ -58,19 +76,35 @@ static void APP_Meta_WriteConfirmed(const APP_MetaInfo_t *info)
     HAL_FLASH_Lock();
 }
 
+/**
+ * @brief Confirm boot success when current image is the testing image
+ *
+ * If metadata shows:
+ * - status == TESTING
+ * - active_slot == APP_SELF_SLOT
+ * - confirmed == 0
+ *
+ * then the application rewrites metadata as:
+ * - status = OK
+ * - boot_pending = 0
+ * - confirmed = 1
+ */
 void APP_ConfirmBootIfNeeded(void)
 {
     APP_MetaInfo_t meta;
 
+    /* Return directly if metadata is invalid */
     if (!APP_Meta_Read(&meta))
     {
         return;
     }
 
+    /* Confirm boot only for the current testing image */
     if ((meta.status == APP_META_STATUS_TESTING) &&
         (meta.active_slot == APP_SELF_SLOT) &&
         (meta.confirmed == 0U))
     {
+        /* Mark current image as confirmed and stable */
         meta.status = APP_META_STATUS_OK;
         meta.boot_pending = 0U;
         meta.confirmed = 1U;
