@@ -1,6 +1,6 @@
 /**
  * @file    bl_config.h
- * @brief   Bootloader flash layout and common configuration
+ * @brief   Bootloader Flash 分区与通用配置
  */
 #ifndef __BL_CONFIG_H__
 #define __BL_CONFIG_H__
@@ -8,7 +8,7 @@
 #include "stm32f1xx_hal.h"
 
 /* =========================
- * Flash layout (128 KB)
+ * Flash 分区 (128 KB)
  * =========================
  *
  * 0x08000000 ~ 0x08003FFF   Bootloader   16 KB
@@ -42,7 +42,7 @@
 #define RESERVED_FLASH_START_ADDR 0x0801D000U
 #define RESERVED_FLASH_SIZE 0x00003000U /* 12 KB */
 
-/* Boot delay before decision */
+/* 启动决策前延时 */
 #define BL_JUMP_DELAY_MS 1000U
 
 #endif

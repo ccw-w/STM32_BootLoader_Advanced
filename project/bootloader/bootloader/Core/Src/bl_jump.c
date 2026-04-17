@@ -1,12 +1,12 @@
 /**
  * @file    bl_jump.c
- * @brief   Validate application image and jump to target application
+ * @brief   应用镜像有效性检查与跳转实现
  *
- * Main responsibilities:
- * - check whether stack pointer and reset handler are valid
- * - switch vector table to target application
- * - set MSP to application stack top
- * - jump to application reset handler
+ * 主要职责：
+ * - 检查栈顶和复位向量是否合法
+ * - 切换中断向量表到目标应用
+ * - 设置 MSP
+ * - 跳转到应用复位入口
  */
 #include "bl_jump.h"
 #include "usart.h"
@@ -14,12 +14,12 @@
 typedef void (*pFunction)(void);
 
 /**
- * @brief Check whether an application image is valid
+ * @brief 检查指定应用镜像是否有效
  *
- * Validation rules:
- * - initial stack pointer must be inside SRAM
- * - reset handler must not be empty
- * - reset handler must be inside current slot range
+ * 检查规则：
+ * - 初始栈顶地址必须位于 SRAM 区间
+ * - 复位向量不能是空值
+ * - 复位向量必须落在当前槽地址范围内
  */
 uint8_t BL_IsAppValid(uint32_t app_addr, uint32_t app_size) {
   uint32_t app_sp;
@@ -44,35 +44,35 @@ uint8_t BL_IsAppValid(uint32_t app_addr, uint32_t app_size) {
 }
 
 /**
- * @brief Jump from Bootloader to application
+ * @brief 从 Bootloader 跳转到应用程序
  *
- * Steps:
- * - validate target application
- * - disable interrupts
- * - stop SysTick
- * - de-initialize HAL
- * - clear NVIC enable/pending bits
- * - switch VTOR
- * - load MSP
- * - jump to reset handler
+ * 跳转步骤：
+ * - 检查目标应用是否有效
+ * - 关闭中断
+ * - 停止 SysTick
+ * - 反初始化 HAL
+ * - 清除 NVIC 使能与挂起状态
+ * - 切换 VTOR
+ * - 设置 MSP
+ * - 跳转到复位向量
  */
 void BL_JumpToApp(uint32_t app_addr, uint32_t app_size) {
   uint32_t app_sp;
   uint32_t app_reset;
   pFunction app_entry;
 
-  /* Check whether target application is valid */
+  /* 检查目标应用是否有效 */
   if (BL_IsAppValid(app_addr, app_size) == 0U) {
     printf("Invalid app in slot: addr=0x%08lX\r\n", app_addr);
     return;
   }
 
-  /* Read initial stack pointer and reset handler from vector table */
+  /* 读取应用向量表中的栈顶地址和复位入口 */
   app_sp = *(volatile uint32_t *)app_addr;
   app_reset = *(volatile uint32_t *)(app_addr + 4U);
   app_entry = (pFunction)app_reset;
 
-  /* Disable interrupts and stop SysTick */
+  /* 关闭中断并停止 SysTick */
   __disable_irq();
   SysTick->CTRL = 0U;
   SysTick->LOAD = 0U;
@@ -80,20 +80,20 @@ void BL_JumpToApp(uint32_t app_addr, uint32_t app_size) {
 
   HAL_DeInit();
 
-  /* Clear NVIC enable and pending state */
+  /* 清除 NVIC 使能和挂起状态 */
   NVIC->ICER[0] = 0xFFFFFFFFU;
   NVIC->ICER[1] = 0xFFFFFFFFU;
   NVIC->ICPR[0] = 0xFFFFFFFFU;
   NVIC->ICPR[1] = 0xFFFFFFFFU;
 
-  /* Switch vector table and set application MSP */
+  /* 切换向量表并设置应用栈顶 */
   SCB->VTOR = app_addr;
   __set_MSP(app_sp);
 
   __DSB();
   __ISB();
 
-  /* Jump to application reset handler */
+  /* 跳转到应用复位入口 */
   app_entry();
 
   while (1) {

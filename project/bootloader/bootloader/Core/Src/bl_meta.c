@@ -1,25 +1,25 @@
 /**
  * @file    bl_meta.c
- * @brief   Metadata read/write implementation
+ * @brief   Bootloader 元信息读写实现
  *
- * The metadata area is used to store:
- * - upgrade status
- * - active / target / rollback slot
- * - boot confirmation flags
- * - firmware size / CRC / version
+ * Meta 区用于保存：
+ * - 升级状态
+ * - 活动槽 / 目标槽 / 回滚槽
+ * - 首启与确认标志
+ * - 固件大小 / CRC / 版本号
  */
 #include "bl_meta.h"
 #include "bl_config.h"
 
 /**
- * @brief Program one 32-bit word into metadata area
+ * @brief 向元信息区域写入一个 32 位字
  */
 static HAL_StatusTypeDef BL_Meta_WriteWord(uint32_t addr, uint32_t value) {
   return HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, addr, value);
 }
 
 /**
- * @brief Erase metadata page and write a full metadata record
+ * @brief 擦除元信息页并写入一整份元信息
  */
 void BL_Meta_Set(BL_MetaStatus_t status, BL_Slot_t active_slot,
                  BL_Slot_t target_slot, BL_Slot_t rollback_slot,
@@ -51,7 +51,7 @@ void BL_Meta_Set(BL_MetaStatus_t status, BL_Slot_t active_slot,
 }
 
 /**
- * @brief Clear metadata page
+ * @brief 清空元信息页
  */
 void BL_Meta_Clear(void) {
   FLASH_EraseInitTypeDef erase_init = {0};
@@ -69,9 +69,9 @@ void BL_Meta_Clear(void) {
 }
 
 /**
- * @brief Read and validate metadata from Flash
- * @retval 1: metadata is valid
- * @retval 0: metadata is invalid
+ * @brief 读取并检查元信息是否有效
+ * @retval 1 表示有效
+ * @retval 0 表示无效
  */
 uint8_t BL_Meta_Read(BL_MetaInfo_t *info) {
   if (info == 0) {

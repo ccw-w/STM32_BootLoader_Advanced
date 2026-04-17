@@ -1,16 +1,16 @@
 /**
  * @file    app_confirm.c
- * @brief   Application-side boot confirmation implementation
+ * @brief   应用侧首启确认实现
  *
- * This module is used by the application to confirm
- * that the new image booted successfully.
+ * 本模块用于在新镜像首启成功后，
+ * 由应用主动回写 Meta，确认该镜像可以稳定运行。
  */
 #include "app_confirm.h"
 
 /**
- * @brief Read metadata from Flash
- * @retval 1: valid metadata
- * @retval 0: invalid metadata
+ * @brief 从 Flash 读取元信息
+ * @retval 1 表示元信息有效
+ * @retval 0 表示元信息无效
  */
 static uint8_t APP_Meta_Read(APP_MetaInfo_t *info)
 {
@@ -39,7 +39,7 @@ static uint8_t APP_Meta_Read(APP_MetaInfo_t *info)
 }
 
 /**
- * @brief Program one 32-bit word into metadata area
+ * @brief 向元信息区域写入一个 32 位字
  */
 static HAL_StatusTypeDef APP_Meta_WriteWord(uint32_t addr, uint32_t value)
 {
@@ -47,7 +47,7 @@ static HAL_StatusTypeDef APP_Meta_WriteWord(uint32_t addr, uint32_t value)
 }
 
 /**
- * @brief Rewrite metadata page with confirmed boot result
+ * @brief 擦除并重写元信息页，保存确认后的状态
  */
 static void APP_Meta_WriteConfirmed(const APP_MetaInfo_t *info)
 {
@@ -77,14 +77,14 @@ static void APP_Meta_WriteConfirmed(const APP_MetaInfo_t *info)
 }
 
 /**
- * @brief Confirm boot success when current image is the testing image
+ * @brief 如有需要，确认当前测试镜像启动成功
  *
- * If metadata shows:
- * - status == TESTING
- * - active_slot == APP_SELF_SLOT
+ * 当满足以下条件时：
+ * - 当前状态为 TESTING
+ * - 当前活动槽就是本应用所在槽
  * - confirmed == 0
  *
- * then the application rewrites metadata as:
+ * 则将元信息更新为：
  * - status = OK
  * - boot_pending = 0
  * - confirmed = 1
@@ -93,18 +93,18 @@ void APP_ConfirmBootIfNeeded(void)
 {
     APP_MetaInfo_t meta;
 
-    /* Return directly if metadata is invalid */
+    /* 如果元信息无效，则直接返回 */
     if (!APP_Meta_Read(&meta))
     {
         return;
     }
 
-    /* Confirm boot only for the current testing image */
+    /* 仅对当前测试镜像执行启动确认 */
     if ((meta.status == APP_META_STATUS_TESTING) &&
         (meta.active_slot == APP_SELF_SLOT) &&
         (meta.confirmed == 0U))
     {
-        /* Mark current image as confirmed and stable */
+        /* 将当前镜像标记为已确认、可稳定运行 */
         meta.status = APP_META_STATUS_OK;
         meta.boot_pending = 0U;
         meta.confirmed = 1U;
