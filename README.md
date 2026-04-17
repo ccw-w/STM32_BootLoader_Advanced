@@ -70,7 +70,7 @@ project/
    └─ app_demo/            # Application project for Slot B
 
 docs/
-└─test_notes/              # Test notes and flow documents
+└─ test_notes/              # Test notes and flow documents
 ```
 
 ---
@@ -234,7 +234,7 @@ project/
    └─ app_demo/            # B 槽版 App 工程
 
 docs/
-└─test_notes/              # 测试说明与流程文档
+└─ test_notes/              # 测试说明与流程文档
 ```
 
 ---
