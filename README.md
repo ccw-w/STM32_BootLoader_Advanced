@@ -1,4 +1,4 @@
-# STM32_BootLoader_Advanced
+# STM32_BootLoader
 
 <p align="center">
   <b>STM32F103 Bootloader with full-image CRC, A/B dual-image update, boot confirmation, and rollback.</b><br/>
@@ -15,7 +15,7 @@
 
 ## Overview
 
-`STM32_BootLoader_Advanced` is an STM32F103 bootloader project developed step by step from a minimal bootloader into a more complete firmware update system.
+`STM32_BootLoader` is an STM32F103 bootloader project developed step by step from a minimal bootloader into a more complete firmware update system.
 
 Current functions:
 
@@ -179,7 +179,7 @@ This repository is licensed under the MIT License.
 
 ## 项目简介
 
-`STM32_BootLoader_Advanced` 是一个基于 STM32F103 的 Bootloader 项目，从最小可跳转的 Bootloader 逐步扩展为一个更完整的固件升级系统。
+`STM32_BootLoader` 是一个基于 STM32F103 的 Bootloader 项目，从最小可跳转的 Bootloader 逐步扩展为一个更完整的固件升级系统。
 
 当前功能包括：
 
